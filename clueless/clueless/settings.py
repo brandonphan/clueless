@@ -122,3 +122,8 @@ STATIC_URL = '/static/'
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = 'home'
+try:
+    from project.settings_deploy import *
+except ImportError:
+    pass
+
