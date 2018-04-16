@@ -1,4 +1,4 @@
-Django==1.11.12
+Django
 django-webpack-loader
 gunicorn
 Whitenoise
