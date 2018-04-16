@@ -1,0 +1,4 @@
+Django==1.11.12
+django-webpack-loader
+gunicorn
+Whitenoise
