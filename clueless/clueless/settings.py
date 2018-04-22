@@ -25,7 +25,7 @@ SECRET_KEY = 'xqw1$_4ttce0!qfn=udiam5*-hq%(e4jums4_&a2q%9&dt5#*c'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [bphan.pythonanywhere.com]
 
 
 # Application definition
@@ -125,13 +125,4 @@ STATICFILES_DIRS = (
 )
 
 LOGIN_URL = '/login/'
-<<<<<<< HEAD
-LOGIN_REDIRECT_URL = 'home'
-try:
-    from project.settings_deploy import *
-except ImportError:
-    pass
-
-=======
 LOGIN_REDIRECT_URL = 'game:home'
->>>>>>> brandon
