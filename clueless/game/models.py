@@ -5,17 +5,29 @@ from django.db import models
 
 from random import shuffle
 
+from game import *
+
 # Create your models here.
 
 class Game(models.Model):
     players = models.ManyToManyField('Player')
     game_map = models.ForeignKey('Map', null=True)
-    case_file = models.ManyToManyField('Card')
+    case_file = models.ManyToManyField('Card', related_name='case_file')
     characters = models.ManyToManyField('Character')
+    game_state = models.IntegerField(default=0)
+    game_owner = models.ForeignKey('Player', related_name='owner')
+
+    player_taking_turn = models.ForeignKey('Player', related_name='player_taking_turn', null=True)
+
+    winner = models.ForeignKey('Player', related_name='winner', null=True)
+
+    active_suggestion = models.ForeignKey('Suggestion', related_name='active_suggestion', null=True)
 
     @classmethod
-    def create(cls):
+    def create(cls, game_owner):
         game = cls()
+        game.game_owner = game_owner
+        game.game_state = GAME_STATE_CREATED
         game.save()
         game.createCharacters()
         return game
@@ -37,16 +49,21 @@ class Game(models.Model):
             return None
 
     def get_characters(self):
-        print self.characters.all()
         return self.characters.all()
+
+    def get_cards(self):
+        return Card.objects.filter(game=self)
+
+    def get_card(self, name):
+        return Card.objects.get(game=self, name=name)
 
     def createCharacters(self):
         col_mustard = Character.create('Colonel Mustard')
         miss_scarlet = Character.create('Miss Scarlet')
         prof_plum = Character.create('Professor Plum')
-        mr_green = Character.create('Mr. Green')
-        mrs_white = Character.create('Mrs. White')
-        mrs_peacock = Character.create('Mrs. Peacock')
+        mr_green = Character.create('Mr Green')
+        mrs_white = Character.create('Mrs White')
+        mrs_peacock = Character.create('Mrs Peacock')
 
         col_mustard.save()
         miss_scarlet.save()
@@ -65,6 +82,13 @@ class Game(models.Model):
         self.save()
 
     def initialize_game(self):
+        game_map = Map.create()
+        game_map.save()
+        game_map.initialize_locations()
+        self.game_map = game_map
+        self.save()
+        for player in self.players.all():
+            player.reset()
         cards = self.initialize_cards()
         print "Cards initialized"
         print cards
@@ -72,32 +96,45 @@ class Game(models.Model):
         print "Cards shuffled"
         cards = self.get_case_file(cards)
         self.pass_out_cards(cards)
+        self.game_state = GAME_STATE_STARTED
+
+        print self.case_file.all()
+
+        self.player_taking_turn = self.players.all().first()
+
+        #print player_taking_turn
+        self.player_taking_turn.make_active_player()
+        self.player_taking_turn.set_turn_state(SELECTING_ACTION)
+
+        self.add_characters_to_map()
+
+        self.save()
 
 
     def initialize_cards(self):
-        col_mustard = Card.create('Colonel Mustard', 'suspect')
-        miss_scarlet = Card.create('Miss Scarlet', 'suspect')
-        prof_plum = Card.create('Professor Plum', 'suspect')
-        mr_green = Card.create('Mr. Green', 'suspect')
-        mrs_white = Card.create('Mrs. White', 'suspect')
-        mrs_peacock = Card.create('Mrs. Peacock', 'suspect')
+        col_mustard = Card.create('Colonel Mustard', 'suspect', self)
+        miss_scarlet = Card.create('Miss Scarlet', 'suspect', self)
+        prof_plum = Card.create('Professor Plum', 'suspect', self)
+        mr_green = Card.create('Mr Green', 'suspect', self)
+        mrs_white = Card.create('Mrs White', 'suspect', self)
+        mrs_peacock = Card.create('Mrs Peacock', 'suspect', self)
 
-        rope = Card.create('Rope', 'weapon')
-        lead_pipe = Card.create('Lead Pipe', 'weapon')
-        knife = Card.create('Knife', 'weapon')
-        wrench = Card.create('Wrench', 'weapon')
-        candlestick = Card.create('Candlestick', 'weapon')
-        revolver = Card.create('Revolver', 'weapon')
+        rope = Card.create('Rope', 'weapon', self)
+        lead_pipe = Card.create('Lead Pipe', 'weapon', self)
+        knife = Card.create('Knife', 'weapon', self)
+        wrench = Card.create('Wrench', 'weapon', self)
+        candlestick = Card.create('Candlestick', 'weapon', self)
+        revolver = Card.create('Revolver', 'weapon', self)
 
-        study = Card.create("Study", 'room')
-        hall = Card.create("Hall", 'room')
-        lounge = Card.create("Lounge", 'room')
-        library = Card.create("Library", 'room')
-        billiard_room = Card.create("Billiard Room", 'room')
-        dining_room = Card.create("Dining Room", 'room')
-        conservatory = Card.create("Conservatory", 'room')
-        ballroom = Card.create("Ballroom", 'room')
-        kitchen = Card.create("Kitchen", 'room')
+        study = Card.create("Study", 'room', self)
+        hall = Card.create("Hall", 'room', self)
+        lounge = Card.create("Lounge", 'room', self)
+        library = Card.create("Library", 'room', self)
+        billiard_room = Card.create("Billiard Room", 'room', self)
+        dining_room = Card.create("Dining Room", 'room', self)
+        conservatory = Card.create("Conservatory", 'room', self)
+        ballroom = Card.create("Ballroom", 'room', self)
+        kitchen = Card.create("Kitchen", 'room', self)
 
         col_mustard.save()
         miss_scarlet.save()
@@ -152,13 +189,7 @@ class Game(models.Model):
         return cards
 
     def shuffle_cards(self, cards):
-
-        print cards
-
         shuffle(cards)
-
-        print cards
-
         return cards
 
     def get_case_file(self, cards):
@@ -187,9 +218,6 @@ class Game(models.Model):
         cards.remove(haveSuspect)
         cards.remove(haveWeapon)
         cards.remove(haveRoom)
-
-        print cards
-
         self.save()
 
         return cards
@@ -210,12 +238,167 @@ class Game(models.Model):
             print player
             print player.hand.all()
 
+    def get_next_player(self, curr_player):
+        player_list = list(self.players.all())
+
+        curr_player_idx = 0
+
+        for x in range(0, len(player_list)):
+            if(curr_player == player_list[x]):
+                curr_player_idx = x
+
+        next_player = player_list[curr_player_idx+1 if curr_player_idx != len(player_list) - 1 else 0]
+
+        return next_player
+
+    def pass_turn(self, curr_player):
+
+        next_player = self.get_next_player(curr_player)
+
+        curr_player.make_not_active_player()
+        # Just set this to default action
+        curr_player.reset_moved_by_suggestion()
+        curr_player.reset_can_move()
+        curr_player.reset_can_suggest()
+        curr_player.set_turn_state(SELECTING_ACTION)
+
+        next_player.make_active_player()
+        next_player.set_turn_state(SELECTING_ACTION)
+        next_player.reset_can_move()
+
+    def get_player_character(self, player):
+        character = self.characters.filter(player__in=[player]).get()
+        return character
+
+    def add_characters_to_map(self):
+
+        locations = self.game_map.locations.all()
+        characters = self.characters.all()
+
+        scarlet_start = locations.get(name='scarlet-start')
+        plum_start = locations.get(name='plum_start')
+        mustard_start = locations.get(name='mustard_start')
+        peacock_start = locations.get(name='peacock_start')
+        green_start = locations.get(name='green_start')
+        white_start = locations.get(name='white_start')
+
+        col_mustard = characters.get(name='Colonel Mustard')
+        miss_scarlet = characters.get(name='Miss Scarlet')
+        prof_plum = characters.get(name='Professor Plum')
+        mr_green = characters.get(name='Mr Green')
+        mrs_white = characters.get(name='Mrs White')
+        mrs_peacock = characters.get(name='Mrs Peacock')
+
+        col_mustard.curr_location = mustard_start
+        mustard_start.characters.add(col_mustard)
+        col_mustard.save()
+        mustard_start.save()
+
+        miss_scarlet.curr_location = scarlet_start
+        scarlet_start.characters.add(miss_scarlet)
+        miss_scarlet.save()
+        scarlet_start.save()
+
+        prof_plum.curr_location = plum_start
+        plum_start.characters.add(prof_plum)
+        prof_plum.save()
+        plum_start.save()
+
+        mr_green.curr_location = green_start
+        green_start.characters.add(mr_green)
+        mr_green.save()
+        green_start.save()
+
+        mrs_white.curr_location = white_start
+        white_start.characters.add(mrs_white)
+        mrs_white.save()
+        white_start.save()
+
+        mrs_peacock.curr_location = peacock_start
+        peacock_start.characters.add(mrs_peacock)
+        mrs_peacock.save()
+        peacock_start.save()
+
+    def get_map(self):
+        return self.game_map
+
+    def check_accusation(self, accusation):
+        print self.case_file.all()
+        if (accusation.get_suspect() in self.case_file.all() and
+            accusation.get_weapon() in self.case_file.all() and
+            accusation.get_crime_scene() in self.case_file.all()):
+            return True
+        else:
+            return False
+
+    def set_game_state(self, state):
+        self.game_state = state
+        self.save()
+
+    def is_all_eliminated(self):
+        for player in self.players.all():
+            if not player.is_eliminated():
+                return False
+
+        return True
+
+    def get_active_player(self):
+        for player in self.players.all():
+            if player.is_active:
+                return player
+        return None
+
+    def set_active_suggestion(self, suggestion):
+        self.active_suggestion = suggestion
+        self.save()
+
+    def reset_active_suggestion(self):
+        self.active_suggestion = None
+        self.save()
+
+    def pass_suggestion(self, curr_active_player):
+
+        print "***** PASSING SUGGESTION *****"
+        next_player = self.get_next_player(curr_active_player)
+
+        curr_active_player.make_not_active_player()
+
+        print str(curr_active_player != self.active_suggestion.player)
+        if(curr_active_player != self.active_suggestion.player):
+            curr_active_player.set_turn_state(SELECTING_ACTION)
+
+        print "Next player: " + str(next_player)
+
+        print "Player after next player: " + str(self.get_next_player(next_player))
+
+        print "Is next player suggestor: "  + str(next_player == self.active_suggestion.player)
+
+        next_player.make_active_player()
+
+        print self.active_suggestion
+
+        if next_player == self.active_suggestion.player:
+            print "Made it all the away around"
+            self.reset_active_suggestion()
+            next_player.set_turn_state(SELECTING_ACTION)
+            return
+
+        next_player.set_turn_state(REFUTING_SUGGESTION)
+
+    def get_location(self, name):
+        return self.game_map.get_location(name)
 
 
 class Player(models.Model):
     username = models.CharField(max_length=255, blank=True)
     is_ready = models.BooleanField(default=False)
     hand = models.ManyToManyField('Card')
+    is_active = models.BooleanField(default=False)
+    turn_state = models.IntegerField(default=1)
+    can_move = models.BooleanField(default=True)
+    can_suggest = models.BooleanField(default=True)
+    eliminated = models.BooleanField(default=False)
+    moved_by_suggestion = models.BooleanField(default=False)
 
     @classmethod
     def create(cls, username):
@@ -226,11 +409,101 @@ class Player(models.Model):
     def __str__(self):
         return str(self.username)
 
-    def setHand(cards):
+    def setHand(self, cards):
         self.hand = cards
         self.save()
 
-from abc import ABCMeta, abstractmethod
+    def get_hand(self):
+        return self.hand.all()
+
+    def get_character(self):
+        try:
+            game = Game.objects.filter(players__in=[self]).get()
+            return game.get_characters().get(player=self)
+        except Game.DoesNotExist:
+            return 0
+
+    def check_current_game_state(self):
+        try:
+            game = Game.objects.filter(players__in=[self]).get()
+            return game.game_state
+        except Game.DoesNotExist:
+            return 0
+
+    def get_current_game(self):
+        try:
+            return Game.objects.filter(players__in=[self]).get()
+        except Game.DoesNotExist:
+            return None
+
+    def make_active_player(self):
+        self.is_active = True
+        self.save()
+
+    def make_not_active_player(self):
+        self.is_active = False
+        self.save()
+
+    def set_turn_state(self, state):
+        self.turn_state = state
+        self.save()
+
+    def set_player_moved(self):
+        self.can_move = False
+        self.save()
+
+    def reset_can_move(self):
+        self.can_move = True
+        self.save()
+
+    def set_eliminated(self):
+        self.eliminated = True
+        self.save()
+
+    def set_moved_by_suggestion(self):
+        self.moved_by_suggestion = True
+        self.save()
+
+    def reset_moved_by_suggestion(self):
+        self.moved_by_suggestion = False
+        self.save()
+
+    def is_eliminated(self):
+        return self.eliminated
+
+    def can_player_move(self):
+        return self.can_move
+
+    def get_valid_moves(self):
+        character = self.get_current_game().get_player_character(self)
+        return character.get_valid_moves()
+
+    def move_to_room(self, target_location):
+        character = self.get_current_game().get_player_character(self)
+        print character
+        character.move_to_room(target_location)
+
+    def reset_can_suggest(self):
+        self.can_suggest = True
+        self.save()
+
+    def has_guessed(self):
+        self.can_suggest = False
+        self.save()
+
+    def reset(self):
+        for card in self.hand.all():
+            self.hand.remove(card)
+        self.is_ready = False
+        self.turn_state = SELECTING_ACTION
+        self.can_move = True
+        self.can_suggest = True
+        self.eliminated = False
+        self.is_active = False
+        self.save()
+
+    def can_make_suggestion(self):
+        return ((not self.can_move and self.get_character().get_location().is_room()) or self.moved_by_suggestion) and self.can_suggest
 
 class Location(models.Model):
     name = models.CharField(max_length=255, blank=True)
@@ -245,46 +518,37 @@ class Location(models.Model):
         return self.characters
 
     def add_adjacent_location(self, location, direction):
-        AdjacentLocation.create(curr_loc=self, di=direction, loc=location)
+        adj_loc = AdjacentLocation.create(curr_loc=self, di=direction, loc=location)
+        adj_loc.save()
 
     # Locations and directions must be passed in in corresponding order
     def add_adjacent_locations(self, locations, directions):
         for idx, location in enumerate(locations):
             self.add_adjacent_location(location, directions[idx])
 
-    # def is_valid_move_target(self):
-    #     return (len(self.characters) < self.max_characters)
-#
-#     def get_valid_moves(self):
-#         directions = []
-#         for direction, location in self.adjacent_locations.iter_items():
-#             if(location.is_valid_move_target()):
-#                 directions.append((location, direction))
-#
-#     def add_character(self, character):
-#         self.characters.append(character)
-#
-#     def remove_character(self, character):
-#         self.characters.remove(character)
-#
-#     def is_character_in_room(self, character):
-#         return character in self.characters
-#
-#     def north(self):
-#         return self.adjacent_locations.get('N', None)
-#
-#     def south(self):
-#         return self.adjacent_locations.get('S', None)
-#
-#     def east(self):
-#         return self.adjacent_locations.get('E', None)
-#
-#     def west(self):
-#         return self.adjacent_locations.get('W', None)
-#
-#     def secret(self):
-#         return self.adjacent_locations.get('secret', None)
+    def is_valid_move_target(self):
+        return self.max_characters > len(self.characters.all())
 
+    def get_valid_moves(self):
+        adj_loc_list = list(self.adjacent_locations.all())
+
+        valid_moves = []
+
+        for location in adj_loc_list:
+            if location.is_valid_move_target():
+                valid_moves.append(location.name.replace(' ', '-').lower())
+        return valid_moves
+
+    def remove_character(self, character):
+        self.characters.remove(character)
+        self.save()
+
+    def add_character(self, character):
+        self.characters.add(character)
+        self.save()
+
+    def is_room(self):
+        return self.name in ['Study', 'Hall', 'Lounge', 'Library', 'Billiard Room', 'Dining Room', 'Conservatory', 'Ballroom', 'Kitchen']
 
 class Room(Location):
     @classmethod
@@ -307,41 +571,44 @@ class Character(models.Model):
     curr_location = models.ForeignKey('Location', on_delete=models.CASCADE, null=True)
     selected = models.BooleanField(default=False)
 
+    def __str__(self):
+        return self.name
+
     @classmethod
     def create(cls, name):
-      return cls(name=name)
+        return cls(name=name)
 
-    # def __init__(self, name, player, location):
-    #     self.name = name
-    #     self.player = player
-    #     self.location = location
-    #
-    # def __str__(self):
-    #     return self.name
-    #
-    # def get_player(self):
-    #     return self.player
-    #
-    # def get_location(self):
-    #     return self.location
-    #
-    # # This function does NOT check whether the room to be moved to is a
-    # # valid target, that should be checked prior to this call
-    # def move_character(self, new_location):
-    #     self.location.remove_character(self)
-    #     new_location.add_character(self)
-    #     self.location = new_location
+    def get_location(self):
+        return self.curr_location
+
+    def get_valid_moves(self):
+        return self.curr_location.get_valid_moves()
+
+    def move_to_room(self, target_location):
+        print self.curr_location
+        print target_location
+        self.curr_location.remove_character(self)
+        target_location.add_character(self)
+        self.curr_location = target_location
+        self.save()
+
+        print self.curr_location
+
+    def get_player(self):
+        return self.player
+
 
 class Card(models.Model):
     name = models.CharField(max_length=32, blank=True)
     card_type = models.CharField(max_length=32, blank=True)
+    game = models.ForeignKey('Game', related_name='card_game')
 
     def __str__(self):
         return self.name
 
     @classmethod
-    def create(cls, name, card_type):
-        return cls(name=name, card_type=card_type)
+    def create(cls, name, card_type, game):
+        return cls(name=name, card_type=card_type, game=game)
 
 
 
@@ -351,6 +618,11 @@ class Map(models.Model):
     @classmethod
     def create(cls):
         return cls()
+
+    def get_location(self, name):
+        print name
+
+        return self.locations.get(name=name.replace('-', ' ').title())
 
 
     def initialize_locations(self):
@@ -366,18 +638,18 @@ class Map(models.Model):
         kitchen = Room.create(name="Kitchen")
 
         # Initialize hallways
-        study_hall_hallway = Hallway.create("Study - Hall Hallway")
-        hall_lounge_hallway = Hallway.create("Hall - Lounge Hallway")
-        study_library_hallway = Hallway.create("Study - Library Hallway")
-        hall_billiard_room_hallway = Hallway.create("Hall - Billiard Room Hallway")
-        lounge_dining_room_hallway = Hallway.create("Lounge - Dining Room Hallway")
-        library_billiard_room_hallway = Hallway.create("Library - Billiard Room Hallway")
-        billiard_room_dining_room_hallway = Hallway.create("Billiard Room - Dining Room Hallway")
-        library_conservatory_hallway = Hallway.create("Library - Conservatory Hallway")
-        billiard_room_ballroom_hallway = Hallway.create("Billiard Room - Ballroom Hallway")
-        dining_room_kitchen_hallway = Hallway.create("Dining Room - Kitchen Hallway")
-        conservatory_ballroom_hallway = Hallway.create("Conservatory - Ballroom Hallway")
-        ballroom_kitchen_hallway = Hallway.create("Ballroom - Kitchen Hallway")
+        study_hall_hallway = Hallway.create("Study To Hall Hallway")
+        hall_lounge_hallway = Hallway.create("Hall To Lounge Hallway")
+        study_library_hallway = Hallway.create("Study To Library Hallway")
+        hall_billiard_room_hallway = Hallway.create("Hall To Billiard Room Hallway")
+        lounge_dining_room_hallway = Hallway.create("Lounge To Dining Room Hallway")
+        library_billiard_room_hallway = Hallway.create("Library To Billiard Room Hallway")
+        billiard_room_dining_room_hallway = Hallway.create("Billiard Room To Dining Room Hallway")
+        library_conservatory_hallway = Hallway.create("Library To Conservatory Hallway")
+        billiard_room_ballroom_hallway = Hallway.create("Billiard Room To Ballroom Hallway")
+        dining_room_kitchen_hallway = Hallway.create("Dining Room To Kitchen Hallway")
+        conservatory_ballroom_hallway = Hallway.create("Conservatory To Ballroom Hallway")
+        ballroom_kitchen_hallway = Hallway.create("Ballroom To Kitchen Hallway")
 
         # Initialize start rooms
         # TODO: Add characters to these starting rooms
@@ -389,6 +661,35 @@ class Map(models.Model):
         green_start = StartRoom.create('green_start')
         white_start = StartRoom.create('white_start')
 
+        study.save()
+        hall.save()
+        lounge.save()
+        library.save()
+        billiard_room.save()
+        dining_room.save()
+        conservatory.save()
+        ballroom.save()
+        kitchen.save()
+
+        study_hall_hallway.save()
+        hall_lounge_hallway.save()
+        study_library_hallway.save()
+        hall_billiard_room_hallway.save()
+        lounge_dining_room_hallway.save()
+        library_billiard_room_hallway.save()
+        billiard_room_dining_room_hallway.save()
+        library_conservatory_hallway.save()
+        billiard_room_ballroom_hallway.save()
+        dining_room_kitchen_hallway.save()
+        conservatory_ballroom_hallway.save()
+        ballroom_kitchen_hallway.save()
+
+        scarlet_start.save()
+        plum_start.save()
+        mustard_start.save()
+        peacock_start.save()
+        green_start.save()
+        white_start.save()
 
         # Add relationships for all rooms
         study.add_adjacent_locations([study_hall_hallway, study_library_hallway, kitchen], ['E', 'S', 'secret'])
@@ -497,3 +798,55 @@ class AdjacentLocation(models.Model):
     @classmethod
     def create(cls, curr_loc, di, loc):
       return cls(original_location=curr_loc, direction=di, target_location=loc)
+
+
+class Guess(models.Model):
+    game = models.ForeignKey('Game', related_name='accuse_game')
+    player = models.ForeignKey('Player', related_name='accuse_player')
+    suspect = models.ForeignKey('Card', related_name='suspect')
+    weapon = models.ForeignKey('Card', related_name='weapon')
+    crime_scene = models.ForeignKey('Card', related_name='crime_scene')
+
+
+    def __str__(self):
+        return self.suspect.name + ":" + self.weapon.name + ":" + self.crime_scene.name
+
+    def get_suspect(self):
+        return self.suspect
+
+    def get_weapon(self):
+        return self.weapon
+
+    def get_crime_scene(self):
+        return self.crime_scene
+
+
+class Suggestion(Guess):
+    refuting_card = models.ForeignKey('Card', related_name='evidence', null=True)
+    refuting_player = models.ForeignKey('Player', related_name='refuting_player', null=True)
+    @classmethod
+    def create(cls, player, suspect_name, weapon_name, room_name):
+      game = player.get_current_game()
+      suggestion = cls(game=game, player=player, suspect=game.get_card(suspect_name.replace('-', ' ').title()),
+            weapon=game.get_card(weapon_name.replace('-', ' ').title()),
+            crime_scene=game.get_card(room_name.replace('-', ' ').title()))
+      suggestion.save()
+      return suggestion
+
+    def set_refuting_card(self, card):
+         self.refuting_card = card
+         self.save()
+
+    def set_refuting_player(self, player):
+        self.refuting_player = player
+        self.save()
+
+class Accusation(Guess):
+    @classmethod
+    def create(cls, player, suspect_name, weapon_name, room_name):
+      game = player.get_current_game()
+      accusation = cls(game=game, player=player, suspect=game.get_card(suspect_name.replace('-', ' ').title()),
+            weapon=game.get_card(weapon_name.replace('-', ' ').title()),
+            crime_scene=game.get_card(room_name.replace('-', ' ').title()))
+      accusation.save()
+      return accusation
