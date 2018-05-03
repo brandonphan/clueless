@@ -181,7 +181,7 @@ def update_player_options(request):
             message = game.get_active_player().username + " did not have their suggestion refuted."
         if not game.get_active_player().can_suggest and game.active_suggestion is not None:
             message = game.active_suggestion.player.username + " had their suggestion refuted by " + game.active_suggestion.refuting_player.username + "."
-        if game.active_suggestion is not None:
+        if game.active_suggestion is not None and game.get_active_player().turn_state == WAITING_ON_SUGGESTION:
             message = game.active_suggestion.player.username + " made a suggestion of " + game.active_suggestion.suspect.name + " in the " + game.active_suggestion.crime_scene.name + " with a " + game.active_suggestion.weapon.name + "."
             return render(request, "action_options.html", {"messages": [message, "Waiting on " + game.get_active_player().username + " for a response."] if message else [], "eliminated": player.is_eliminated()})
         else:
