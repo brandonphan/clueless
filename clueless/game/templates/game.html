@@ -12,6 +12,33 @@
       {% endblock %}
       {% block scripts %}
 
+     $(document).ready(function(){
+         if($('#no-update').length){
+             // Do nothing
+         }else{
+           $.ajax({
+             type: "get",
+             url: "{% url 'game:update_player_options' %}",
+             method: "GET",
+             success: function(response, status, xhr){
+               var ct = xhr.getResponseHeader("content-type") || "";
+               if (ct.indexOf('html') > -1) {
+                 $('#player_options').html(response);
+               }
+               if (ct.indexOf('json') > -1) {
+                 if(response['winner'] == null){
+                   alert("The game has ended and nobody has won! You will be redirected to the home page after closing this window.")
+                   window.location.href = "{% url 'game:home' %}"
+                 }else{
+                   alert("The game has ended and " + response['winner'] + " has won! You will be redirected to the home page after closing this window.")
+                   window.location.href = "{% url 'game:home' %}"
+                 }
+               }
+             }
+           });
+         }
+    });
+
       $(document).ready(function(){
           setInterval(function(){
             if($('#no-update').length){
@@ -177,6 +204,82 @@
             });
           });
 
+          $(document).ready(function()
+          {
+            var formData = [];
+            $('#notebook-form').find("input").each(function (index, node) {
+                if(node.checked){
+                  formData.push(node.value);
+                }
+            });
+
+            $.ajax({
+              type: "post",
+              url: $('#notebook-form').attr("action"),
+              method: "POST",
+              dataType: 'json',
+              data: {
+                first: 'true',
+                checked: formData.toString(),
+              },
+              success: function(response, status, xhr){
+                var ct = xhr.getResponseHeader("content-type") || "";
+                if (ct.indexOf('html') > -1) {
+
+                }
+                if (ct.indexOf('json') > -1) {
+                  saved_items = response['saved_items'];
+                  console.log(saved_items);
+                  for (var i = 0; i < saved_items.length; i++) {
+                    if(saved_items[i] != ""){
+                      $('#notebook-form').find('input[value="' + saved_items[i] + '"]').each(function(index, node){
+                        var $this = $(this);
+                        $this.prop('checked',true)
+                      });
+                    }
+                  }
+                }
+              }
+            });
+          });
+
+          setInterval(function(){
+            var formData = [];
+            $('#notebook-form').find("input").each(function (index, node) {
+                if(node.checked){
+                  formData.push(node.value);
+                }
+            });
+
+            $.ajax({
+              type: "post",
+              url: $('#notebook-form').attr("action"),
+              method: "POST",
+              dataType: 'json',
+              data: {
+                first: 'false',
+                checked: formData.toString(),
+              },
+              success: function(response, status, xhr){
+                var ct = xhr.getResponseHeader("content-type") || "";
+                if (ct.indexOf('html') > -1) {
+
+                }
+                if (ct.indexOf('json') > -1) {
+                  saved_items = response['saved_items'];
+                  for (var i = 0; i < saved_items.length; i++) {
+                    if(saved_items[i] != ""){
+                      $('#notebook-form').find('input[value="' + saved_items[i] + '"]').each(function(index, node){
+                        var $this = $(this);
+                        $this.prop('checked',true)
+                      });
+                    }
+                  }
+                }
+              }
+            });
+          }, 1000);
+
       });
       {% endblock %}
   </head>
@@ -184,15 +287,27 @@
   {% block content %}
       <div container id=game-space>
         <div class=row>
-            <div class=col-sm-5>
-              {% include 'player_hand.html' %}
+            <div class=col-sm-6>
+              <div id=player-reminders>
+                <h5>{{player_name}} -- {{player_character}}</h5>
+              </div>
+              <div class=container>
+                <div class=row>
+                  <div class=col-sm-3>
+                    {% include 'player_hand.html' %}
+                  </div>
+                  <div class=col-sm-9>
+                    {% include 'notebook.html' %}
+                  </div>
+                </div>
+              </div>
               <div class=container>
                 <h2>Player Actions</h2>
                 <div id=player_options>
                 </div>
               </div>
             </div>
-            <div class=col-sm-7 id=game-board-base>
+            <div class=col-sm-6 id=game-board-base>
               {% include 'game_board.html' %}
             </div>
         </div>

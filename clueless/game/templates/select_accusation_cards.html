@@ -1,13 +1,22 @@
 <div class=container id=accusation_options>
+  <h5>Bolded cards are cards that are checked as known in your notebook</h5>
   <form id=accusation_form action="{% url 'game:make_accusation' %}" method="post">
-      {% csrf_token %}
+    {% csrf_token %}
     <div class=container>
       <div class=col-sm-4 id=suspect_options_div>
         <fieldset id=suspect_options>
           <ul style="list-style-type:none">
           {% for suspect_card in suspect_list %}
             <li>
-              <input type=radio value={{suspect_card.name}} name=suspect_options> {{suspect_card.text}}</br>
+              <input type=radio value={{suspect_card.name}} name=suspect_options>
+              {% if suspect_card.known %}
+                <strong>
+                {{suspect_card.text}}
+              </strong>
+              {% else %}
+                {{suspect_card.text}}
+              {% endif %}
+              </br>
             </li>
           {% endfor %}
           </ul>
@@ -18,7 +27,15 @@
           <ul style="list-style-type:none">
           {% for weapon_card in weapon_list%}
             <li>
-              <input type=radio value={{weapon_card.name}} name=weapon_options> {{weapon_card.text}}</br>
+              <input type=radio value={{weapon_card.name}} name=weapon_options>
+              {% if weapon_card.known %}
+                <strong>
+                {{weapon_card.text}}
+              </strong>
+              {% else %}
+                {{weapon_card.text}}
+              {% endif %}
+              </br>
             </li>
           {% endfor %}
           </ul>
@@ -29,7 +46,15 @@
           <ul style="list-style-type:none">
           {% for room_card in room_list%}
             <li>
-              <input type=radio value={{room_card.name}} name=room_options> {{room_card.text}}</br>
+              <input type=radio value={{room_card.name}} name=room_options>
+              {% if room_card.known %}
+                <strong>
+                {{room_card.text}}
+              </strong>
+              {% else %}
+                {{room_card.text}}
+              {% endif %}
+              </br>
             </li>
           {% endfor %}
           </ul>
