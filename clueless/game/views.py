@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import login, logout
+from django.views.decorators.csrf import csrf_exempt
 
 from game.models import Player, Game, Map, Suggestion, Accusation, Card
 from game.forms.create_game_form import CharacterForm
@@ -59,6 +60,18 @@ def start_game(request, game_pk):
         game.initialize_game()
 
     player_hand = player.get_hand()
+
+    card_names = []
+    for card in player_hand:
+        card_names.append(card.name.replace(' ', '-').lower())
+
+    print card_names
+
+    starting_notebook = ",".join(card_names)
+
+    print starting_notebook
+
+    player.get_notebook().update(starting_notebook)
 
     return render(request, "game.html", {'player_name': player.username, 'player_character': player.get_character(), 'player_hand': player_hand})
 
@@ -238,7 +251,11 @@ def move_to_room(request):
 @login_required
 def select_suggestion_cards(request):
     player = Player.objects.filter(username=request.user.username).get()
-    hand = player.get_hand()
+
+    notebook_info = player.get_notebook().get_stored_info().split(",")
+
+    print "Notebook contents"
+    print notebook_info
 
     cards = player.get_current_game().get_cards()
 
@@ -249,10 +266,10 @@ def select_suggestion_cards(request):
 
     for card in cards:
         card_attrs = {}
-        if card in hand:
-            card_attrs['in_hand'] = True
+        if card.name.replace(' ', '-').lower() in notebook_info:
+            card_attrs['known'] = True
         else:
-            card_attrs['in_hand'] = False
+            card_attrs['known'] = False
 
         card_attrs['name'] = card.name.replace(' ', '-').lower()
         card_attrs['type'] = card.card_type
@@ -263,14 +280,13 @@ def select_suggestion_cards(request):
         elif card.card_type == 'weapon':
             weapon_list.append(card_attrs)
 
-    try:
-        hand.get(name=location.name)
-        loc_in_hand = True
-    except Card.DoesNotExist:
-        loc_in_hand = False
+    if location.name.replace(' ', '-').lower() in notebook_info:
+        known = True
+    else:
+        known = False
 
 
-    loc_attrs = {'name': location.name.replace(' ', '-').lower(), 'in_hand': loc_in_hand, 'text': location.name}
+    loc_attrs = {'name': location.name.replace(' ', '-').lower(), 'known': known, 'text': location.name}
 
     player.set_turn_state(MAKING_SUGGESTION)
 
@@ -348,17 +364,26 @@ def select_accusation_cards(request):
     player = Player.objects.filter(username=request.user.username).get()
     cards = player.get_current_game().get_cards()
 
+    notebook_info = player.get_notebook().get_stored_info().split(",")
+
+    for card in cards:
+        card_attrs = {}
+        if card.name.replace(' ', '-').lower() in notebook_info:
+            card_attrs['known'] = True
+        else:
+            card_attrs['known'] = False
+
     suspect_list = []
     weapon_list = []
     room_list = []
 
     for card in cards:
         if card.card_type == 'suspect':
-            suspect_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name})
+            suspect_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name, 'known': True if card.name.replace(' ', '-').lower() in notebook_info else False})
         elif card.card_type == 'weapon':
-            weapon_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name})
+            weapon_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name, 'known': True if card.name.replace(' ', '-').lower() in notebook_info else False})
         if card.card_type == 'room':
-            room_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name})
+            room_list.append({'name': card.name.replace(' ', '-').lower(), 'type': card.card_type, 'text': card.name, 'known': True if card.name.replace(' ', '-').lower() in notebook_info else False})
 
     player.set_turn_state(MAKING_ACCUSATION)
 
@@ -412,11 +437,23 @@ def update_map(request):
 
     return HttpResponse(data, content_type='application/json')
 
+@csrf_exempt
 def update_notebook(request):
     player = Player.objects.filter(username=request.user.username).get()
     game = player.get_current_game()
     if request.method == 'POST':
         data = request.POST
-        print data
 
-    return redirect('game:start_game', game_pk=player.get_current_game().id)
+    if data['first'] != 'true':
+        player.get_notebook().update(data['checked'])
+
+    saved_items = []
+
+    if player.get_notebook().get_stored_info() is not None:
+        saved_items = player.get_notebook().get_stored_info()
+
+    return_data = {'saved_items': saved_items.split(",")}
+
+    return_data = json.dumps(return_data)
+
+    return HttpResponse(return_data, content_type='application/json')

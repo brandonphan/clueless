@@ -90,10 +90,7 @@ class Game(models.Model):
         for player in self.players.all():
             player.reset()
         cards = self.initialize_cards()
-        print "Cards initialized"
-        print cards
         cards = self.shuffle_cards(cards)
-        print "Cards shuffled"
         cards = self.get_case_file(cards)
         self.pass_out_cards(cards)
         self.game_state = GAME_STATE_STARTED
@@ -102,7 +99,6 @@ class Game(models.Model):
 
         self.player_taking_turn = self.players.all().first()
 
-        #print player_taking_turn
         self.player_taking_turn.make_active_player()
         self.player_taking_turn.set_turn_state(SELECTING_ACTION)
 
@@ -197,11 +193,7 @@ class Game(models.Model):
         haveWeapon = None
         haveRoom = None
 
-        print "Get case file"
-        print cards
-
         for card in cards:
-            print card.card_type
             if haveWeapon is None and card.card_type == 'weapon':
                 self.case_file.add(card)
                 haveWeapon = card
@@ -234,10 +226,6 @@ class Game(models.Model):
                 counter += 1
                 player.save()
 
-        for player in self.players.all():
-            print player
-            print player.hand.all()
-
     def get_next_player(self, curr_player):
         player_list = list(self.players.all())
 
@@ -265,6 +253,7 @@ class Game(models.Model):
         next_player.make_active_player()
         next_player.set_turn_state(SELECTING_ACTION)
         next_player.reset_can_move()
+        next_player.reset_can_suggest()
 
     def get_player_character(self, player):
         character = self.characters.filter(player__in=[player]).get()
@@ -323,7 +312,6 @@ class Game(models.Model):
         return self.game_map
 
     def check_accusation(self, accusation):
-        print self.case_file.all()
         if (accusation.get_suspect() in self.case_file.all() and
             accusation.get_weapon() in self.case_file.all() and
             accusation.get_crime_scene() in self.case_file.all()):
@@ -409,6 +397,13 @@ class Player(models.Model):
     def get_hand(self):
         return self.hand.all()
 
+    def get_notebook(self):
+        return self.notebook
+
+    def set_notebook(self, notebook_json):
+        self.notebook = notebook_json
+        self.save()
+
     def get_character(self):
         try:
             game = Game.objects.filter(players__in=[self]).get()
@@ -473,7 +468,6 @@ class Player(models.Model):
 
     def move_to_room(self, target_location):
         character = self.get_current_game().get_player_character(self)
-        print character
         character.move_to_room(target_location)
 
     def reset_can_suggest(self):
@@ -482,6 +476,7 @@ class Player(models.Model):
 
     def has_guessed(self):
         self.can_suggest = False
+        self.can_move = False
         self.save()
 
     def reset(self):
@@ -579,14 +574,10 @@ class Character(models.Model):
         return self.curr_location.get_valid_moves()
 
     def move_to_room(self, target_location):
-        print self.curr_location
-        print target_location
         self.curr_location.remove_character(self)
         target_location.add_character(self)
         self.curr_location = target_location
         self.save()
-
-        print self.curr_location
 
     def get_player(self):
         return self.player
@@ -614,8 +605,6 @@ class Map(models.Model):
         return cls()
 
     def get_location(self, name):
-        print name
-
         return self.locations.get(name=name.replace('-', ' ').title())
 
 
@@ -849,7 +838,7 @@ class Notebook(models.Model):
     stored_info = models.TextField(null=True)
 
     def __str__(self):
-        return self.stored_info
+        return self.stored_info if self.stored_info is not None else "empty"
 
     @classmethod
     def create(cls):
@@ -860,3 +849,6 @@ class Notebook(models.Model):
     def update(self, data):
         self.stored_info = data
         self.save()
+
+    def get_stored_info(self):
+        return self.stored_info
